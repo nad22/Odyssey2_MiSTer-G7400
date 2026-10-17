@@ -60,6 +60,7 @@ entity vp_glue is
     p13_i       : in  std_logic;
     p14_i       : in  std_logic;
     p16_i       : in  std_logic;
+    p15_i       : in  std_logic;
     a_low_o     : out std_logic_vector(7 downto 0);
     cart_cs_o   : out std_logic;
     cart_cs_n_o : out std_logic;
@@ -70,6 +71,9 @@ entity vp_glue is
     vdc_cs_n_o  : out std_logic;
     vdc_rd_n_o  : out std_logic;
     vdc_wr_n_o  : out std_logic;
+    vpp_cs_n_o  : out std_logic;
+    vpp_rd_n_o  : out std_logic;
+    vpp_wr_n_o  : out std_logic;
     -- Video Interface --------------------------------------------------------
     hbl_i       : in  std_logic;
     vbl_i       : in  std_logic;
@@ -136,6 +140,15 @@ begin
   vdc_cs_n_o  <= p13_i;
   vdc_rd_n_o  <= ic670b_s;
   vdc_wr_n_o  <= wr_n_i;
+  -- VPP (EF9340/9341, G7400) control
+  -- NOTE: real hardware (confirmed against MAME's io_vpp()) gates VPP access
+  -- via P1.5 only, for BOTH read and write. It does NOT require P1.6 low the
+  -- way VDC/i8244 access does. Using ic670b_s (which requires P1.6 low) here
+  -- would incorrectly block EF9341 status/RAM reads whenever the CPU doesn't
+  -- also assert P1.6 low during a VPP read.
+  vpp_cs_n_o  <= p15_i;
+  vpp_rd_n_o  <= rd_n_i;
+  vpp_wr_n_o  <= wr_n_i;
 
   blank_o     <= hbl_i or vbl_i;
   l_o         <= not l_i nand p17_i;

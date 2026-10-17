@@ -85,6 +85,11 @@ entity vp_console is
 	 char_a_o       : out std_logic_vector( 8 downto 0);
     char_d_i       : in  std_logic_vector( 7 downto 0);
 	 char_en        : out std_logic;
+    -- G7400 / EF9340-9341 Interface -------------------------------------------
+    is_g7400_i     : in  std_logic;
+    ef_char_a_o    : out std_logic_vector(11 downto 0);
+    ef_char_d_i    : in  std_logic_vector( 7 downto 0);
+    ef_char_en_o   : out std_logic;
     -- Joystick Interface -----------------------------------------------------
     -- idx = 0 : left joystick
     -- idx = 1 : right joystick
@@ -160,6 +165,7 @@ architecture struct of vp_console is
       p13_i       : in  std_logic;
       p14_i       : in  std_logic;
       p16_i       : in  std_logic;
+      p15_i       : in  std_logic;
       a_low_o     : out std_logic_vector(7 downto 0);
       cart_cs_o   : out std_logic;
       cart_cs_n_o : out std_logic;
@@ -170,6 +176,9 @@ architecture struct of vp_console is
       vdc_cs_n_o  : out std_logic;
       vdc_rd_n_o  : out std_logic;
       vdc_wr_n_o  : out std_logic;
+      vpp_cs_n_o  : out std_logic;
+      vpp_rd_n_o  : out std_logic;
+      vpp_wr_n_o  : out std_logic;
       -- Video Interface ------------------------------------------------------
       hbl_i       : in  std_logic;
       vbl_i       : in  std_logic;
@@ -208,7 +217,60 @@ architecture struct of vp_console is
          hsync_s,
          vsync_s      : std_logic;
   signal l_from_vdc_s : std_logic;
+  signal l_mixed_s     : std_logic;
   signal d_from_vdc_s : std_logic_vector(7 downto 0);
+  signal r_from_vdc_s,
+         g_from_vdc_s,
+         b_from_vdc_s  : std_logic;
+  signal hpos_s,
+         vpos_s        : std_logic_vector(8 downto 0);
+
+  -- G7400 / EF9340-9341 (VPP) signals
+  signal vpp_cs_n_s,
+         vpp_rd_n_s,
+         vpp_wr_n_s     : std_logic;
+  signal d_from_vpp_s   : std_logic_vector(7 downto 0);
+  signal ef_rgb_s        : std_logic_vector(2 downto 0);
+  signal ef_opaque_s     : std_logic;
+  -- DIAGNOSTIC (temporary): live R register readout for on-screen debug
+  -- overlay - REMOVE once the CPU write-path investigation is concluded.
+  signal ef_dbg_r_s      : std_logic_vector(7 downto 0);
+  signal ef_dbg_any_cs_s,
+         ef_dbg_any_wr_s,
+         ef_dbg_any_rd_s,
+         ef_dbg_any_ldr_cmd_s : std_logic;
+  signal ef_dbg_ta_s,
+         ef_dbg_tb_s     : std_logic_vector(7 downto 0);
+  signal ef_dbg_dout_s    : std_logic_vector(7 downto 0);
+  -- DIAGNOSTIC (temporary): sticky per-command-pattern "ever issued"
+  -- flags (bit N = TB top-3-bits pattern N) - REMOVE once done.
+  signal ef_dbg_any_cmd_s  : std_logic_vector(7 downto 0);
+  -- DIAGNOSTIC (temporary): sticky per-address-value "ever written"
+  -- flags (bit N = addr_i value N during a write) - REMOVE once done.
+  signal ef_dbg_any_wr_addr_s : std_logic_vector(3 downto 0);
+
+  -- Latches '1' the first time the EF9340 layer draws an opaque pixel after
+  -- reset - approximates MAME's cart-edge-connector "pin B" read (used there
+  -- to detect a G7400-aware cartridge and force plain i8244 passthrough for
+  -- older Videopac carts that never touch the EF9340 at all). This core has
+  -- no real cartridge pin to read, so a legacy/non-EF9340 cart or a BIOS
+  -- stage that hasn't initialized the EF9340 yet is approximated by "has the
+  -- automaton ever produced opaque output" - stays '0' (compatibility/
+  -- passthrough) forever for carts that never enable it.
+  signal ef9340_active_r : std_logic := '0';
+
+  -- i8243 port expander (G7400 mixing table loader) signals
+  signal prog_n_s        : std_logic;
+  signal prog_n_d_q      : std_logic := '1';
+  signal prog_fall_en_s,
+         prog_rise_en_s  : std_logic;
+  signal p2_from_t8243_s : std_logic_vector(3 downto 0);
+  signal p2_en_t8243_s   : std_logic;
+  signal p2_to_cpu_mux_s : std_logic_vector(7 downto 0);
+  signal p4_o_s, p5_o_s,
+         p6_o_s, p7_o_s  : std_logic_vector(3 downto 0);
+  signal mix_ef9340_s,
+         mix_i8244_s     : std_logic_vector(7 downto 0);
 
   -- RAM signals
   signal d_from_ram_s : std_logic_vector(7 downto 0);
@@ -280,14 +342,15 @@ begin
       db_o          => db_from_cpu_s,
       db_dir_o      => db_dir_s,
       t1_i          => blank_s,
-      p2_i          => p2_to_cpu_s,
+      p2_i          => p2_to_cpu_mux_s,
       p2_o          => p2_from_cpu_s,
       p2l_low_imp_o => open,
       p2h_low_imp_o => open,
       p1_i          => p1_to_cpu_s,
       p1_o          => p1_from_cpu_s,
       p1_low_imp_o  => open,
-      prog_n_o      => open
+      prog_n_o      => prog_n_s,
+      is_g7400_i    => is_g7400_i
     );
   --
   p1_to_cpu_s      <= (others => '1');
@@ -296,6 +359,13 @@ begin
   cart_a_o         <= a_s;
   cart_bs0_o       <= p1_from_cpu_s(0);
   cart_bs1_o       <= p1_from_cpu_s(1);
+
+  -- i8243 readback overlay: when the expander drives P20-P23 (ANLD/ORLD),
+  -- substitute its nibble onto the CPU's P2 input; otherwise pass the
+  -- keyboard encoder result (driven in process keyb below) unchanged.
+  p2_to_cpu_mux_s(7 downto 4) <= p2_to_cpu_s(7 downto 4);
+  p2_to_cpu_mux_s(3 downto 0) <= p2_from_t8243_s when p2_en_t8243_s = '1' else
+                                 p2_to_cpu_s(3 downto 0);
 
 
   -----------------------------------------------------------------------------
@@ -312,6 +382,7 @@ begin
       p13_i       => p1_from_cpu_s(3),
       p14_i       => p1_from_cpu_s(4),
       p16_i       => p1_from_cpu_s(6),
+      p15_i       => p1_from_cpu_s(5),
       a_low_o     => a_low_s,
       cart_cs_o   => cart_cs_s,
       cart_cs_n_o => cart_cs_n_o,
@@ -322,9 +393,12 @@ begin
       vdc_cs_n_o  => vdc_cs_n_s,
       vdc_rd_n_o  => vdc_rd_n_s,
       vdc_wr_n_o  => vdc_wr_n_s,
+      vpp_cs_n_o  => vpp_cs_n_s,
+      vpp_rd_n_o  => vpp_rd_n_s,
+      vpp_wr_n_o  => vpp_wr_n_s,
       hbl_i       => hbl_s,
       vbl_i       => vbl_s,
-      l_i         => l_from_vdc_s,
+      l_i         => l_mixed_s,
       p17_i       => p1_from_cpu_s(7),
       blank_o     => blank_s,
       l_o         => l_o
@@ -363,21 +437,316 @@ begin
       din_i      => db_s,
       dout_o     => d_from_vdc_s,
       dout_en_o  => open,
-      r_o        => r_o,
-      g_o        => g_o,
-      b_o        => b_o,
+      r_o        => r_from_vdc_s,
+      g_o        => g_from_vdc_s,
+      b_o        => b_from_vdc_s,
       ale_i      => ale_s,
       snd_o      => snd_o,
       snd_vec_o  => snd_vec_o,
 		char_a_o   => char_a_o,
 		char_d_i   => char_d_i,
-		char_en    => char_en
+		char_en    => char_en,
+      hpos_o     => hpos_s,
+      vpos_o     => vpos_s
     );
   --
   hsync_n_o <= not hsync_s;
   vsync_n_o <= not vsync_s;
   hbl_o     <= hbl_s;
   vbl_o     <= vbl_s;
+
+
+  -----------------------------------------------------------------------------
+  -- G7400 / EF9340-9341 (VPP) overlay graphics
+  -----------------------------------------------------------------------------
+  ef9340_b : entity work.ef9340_top
+    port map (
+      clk_i      => clk_i,
+      clk_en_i   => clk_vdc_en_i,
+      res_n_i    => res_n_i,
+      cs_n_i     => vpp_cs_n_s,
+      rd_n_i     => vpp_rd_n_s,
+      wr_n_i     => vpp_wr_n_s,
+      addr_i     => a_low_s(1 downto 0),
+      din_i      => db_s,
+      dout_o     => d_from_vpp_s,
+      hpos_i     => hpos_s,
+      vpos_i     => vpos_s,
+      char_a_o   => ef_char_a_o,
+      char_d_i   => ef_char_d_i,
+      rgb_o      => ef_rgb_s,
+      opaque_o   => ef_opaque_s,
+      dbg_r_o    => ef_dbg_r_s,
+      dbg_any_cs_o => ef_dbg_any_cs_s,
+      dbg_any_wr_o => ef_dbg_any_wr_s,
+      dbg_any_rd_o => ef_dbg_any_rd_s,
+      dbg_any_ldr_cmd_o => ef_dbg_any_ldr_cmd_s,
+      dbg_any_cmd_o => ef_dbg_any_cmd_s,
+      dbg_any_wr_addr_o => ef_dbg_any_wr_addr_s,
+      dbg_ta_o   => ef_dbg_ta_s,
+      dbg_tb_o   => ef_dbg_tb_s,
+      dbg_dout_o => ef_dbg_dout_s
+    );
+  --
+  ef_char_en_o <= '1';
+
+  -----------------------------------------------------------------------------
+  -- PROG edge detector for the i8243.
+  --
+  -- The real 8243 latches the port select + instruction code from P2 on the
+  -- FALLING edge of PROG, and executes the actual port transfer on the
+  -- RISING edge of PROG. t8243_core's clk_fall_en_i/clk_rise_en_i inputs
+  -- must therefore only pulse ONCE per PROG edge, not on every CPU clock
+  -- tick - otherwise ctrl_seq keeps re-decoding P2 (and port_seq keeps
+  -- re-latching) throughout the whole PROG-low window, misinterpreting the
+  -- data phase of a MOVD/ANLD/ORLD instruction as a new port-select/
+  -- instruction code and corrupting the mixing tables.
+  -----------------------------------------------------------------------------
+  process (clk_i)
+  begin
+    if rising_edge(clk_i) then
+      if clk_cpu_en_i = '1' then
+        prog_n_d_q <= prog_n_s;
+      end if;
+    end if;
+  end process;
+
+  prog_fall_en_s <= clk_cpu_en_i and prog_n_d_q and not prog_n_s;
+  prog_rise_en_s <= clk_cpu_en_i and (not prog_n_d_q) and prog_n_s;
+
+  -----------------------------------------------------------------------------
+  -- i8243 port expander - loads the G7400 priority mixing tables via P2/
+  -- P4-P7 (CPU PROG strobe). Only meaningful when is_g7400_i = '1'.
+  --
+  -- t8243_core resets its port latches to all-ONES (see t8243_core.vhd),
+  -- matching MAME's default mix_i8244/mix_ef934x = 0xff. With the corrected
+  -- mix logic below (i8244 wins only where EF9340 is opaque AND its own mix
+  -- bit is set) plus the ef9340_active_r compatibility latch, an all-ones
+  -- default keeps i8244 fully visible (as on a legacy Videopac cart) until
+  -- the EF9340 automaton has produced its first opaque pixel AND the game
+  -- has reprogrammed these tables - matching real G7400 hardware, where the
+  -- cartridge/BIOS is expected to actively (re)program the mixing tables to
+  -- reveal the EF9340 layer. Harmless in non-G7400 modes since the final
+  -- mix stage below is itself gated by is_g7400_i.
+  -----------------------------------------------------------------------------
+  t8243_b : entity work.t8243_core
+    port map (
+      clk_i         => clk_i,
+      clk_rise_en_i => prog_rise_en_s,
+      clk_fall_en_i => prog_fall_en_s,
+      reset_n_i     => res_n_i,
+      cs_n_i        => '0',
+      prog_n_i      => prog_n_s,
+      p2_i          => p2_from_cpu_s(3 downto 0),
+      p2_o          => p2_from_t8243_s,
+      p2_en_o       => p2_en_t8243_s,
+      p4_i          => (others => '1'),
+      p4_o          => p4_o_s,
+      p4_en_o       => open,
+      p5_i          => (others => '1'),
+      p5_o          => p5_o_s,
+      p5_en_o       => open,
+      p6_i          => (others => '1'),
+      p6_o          => p6_o_s,
+      p6_en_o       => open,
+      p7_i          => (others => '1'),
+      p7_o          => p7_o_s,
+      p7_en_o       => open
+    );
+  --
+  mix_ef9340_s <= p4_o_s & p5_o_s;
+  mix_i8244_s  <= p6_o_s & p7_o_s;
+
+  -----------------------------------------------------------------------------
+  -- ef9340_active_r: see signal declaration above. Latches once the EF9340
+  -- layer first draws anything opaque, approximating cart_b_read().
+  -----------------------------------------------------------------------------
+  process (clk_i, res_n_i)
+  begin
+    if res_n_i = '0' then
+      ef9340_active_r <= '0';
+    elsif rising_edge(clk_i) then
+      if ef_opaque_s = '1' then
+        ef9340_active_r <= '1';
+      end if;
+    end if;
+  end process;
+
+  -----------------------------------------------------------------------------
+  -- Final color mix: EF9340 overlay vs. i8244 background, per priority
+  -- mixing tables above. Pass-through unchanged when not in G7400 mode.
+  -- NOTE: only R/G/B are mixed; the luminance/L output continues to follow
+  -- the existing i8244+vp_glue formula unchanged in both cases (mixing the
+  -- EF9340 "i2" luminance value into L is not implemented - documented
+  -- limitation).
+  -----------------------------------------------------------------------------
+  mix: process (is_g7400_i, ef_opaque_s, ef_rgb_s, ef9340_active_r,
+                r_from_vdc_s, g_from_vdc_s, b_from_vdc_s, l_from_vdc_s,
+                mix_ef9340_s, mix_i8244_s, hpos_s, vpos_s, ef_dbg_r_s,
+                ef_dbg_any_cs_s, ef_dbg_any_wr_s, ef_dbg_any_rd_s,
+                ef_dbg_any_ldr_cmd_s, ef_dbg_ta_s, ef_dbg_tb_s, ef_dbg_dout_s,
+                ef_dbg_any_cmd_s, ef_dbg_any_wr_addr_s)
+    variable i8244_rgb_v : std_logic_vector(2 downto 0);
+    variable use_i8244_v : boolean;
+  begin
+    i8244_rgb_v := r_from_vdc_s & g_from_vdc_s & b_from_vdc_s;
+
+    if is_g7400_i = '1' then
+      use_i8244_v := ef9340_active_r = '0' or
+                     (ef_opaque_s = '1' and
+                      mix_i8244_s(to_integer(unsigned(i8244_rgb_v))) = '1');
+      if use_i8244_v then
+        r_o     <= r_from_vdc_s;
+        g_o     <= g_from_vdc_s;
+        b_o     <= b_from_vdc_s;
+        l_mixed_s <= l_from_vdc_s;
+      else
+        r_o     <= ef_rgb_s(2);
+        g_o     <= ef_rgb_s(1);
+        b_o     <= ef_rgb_s(0);
+        l_mixed_s <= not mix_ef9340_s(to_integer(unsigned(ef_rgb_s)));
+      end if;
+
+      -- DIAGNOSTIC (temporary): show the live R register value as 8
+      -- 8x8-pixel blocks in the extreme top-left corner (RED=bit set,
+      -- GREEN=bit clear, MSB leftmost - deliberately avoiding black/gray/
+      -- white since real content in this area is often already black),
+      -- unconditionally overriding the mix result above in that small
+      -- area only. Lets the R register's real, CPU-written value be read
+      -- directly off the screen with no debugger, to check whether the
+      -- CPU EVER sets any R bit at all during real BIOS/game execution.
+      -- REMOVE once done.
+      if unsigned(vpos_s) < 8 and unsigned(hpos_s) < 64 then
+        if ef_dbg_r_s(7 - to_integer(unsigned(hpos_s(5 downto 3)))) = '1' then
+          r_o <= '1'; g_o <= '0'; b_o <= '0'; l_mixed_s <= '1';
+        else
+          r_o <= '0'; g_o <= '1'; b_o <= '0'; l_mixed_s <= '1';
+        end if;
+      end if;
+
+      -- DIAGNOSTIC (temporary): second row, 4 blocks - sticky "chip was
+      -- EVER selected / written to / read from / sent the exact 'load R'
+      -- command byte at all, since reset" flags, independent of other
+      -- address/data content. RED=happened at least once, GREEN=never
+      -- happened. Answers the most fundamental question: does the CPU's
+      -- write path even reach ef9341_regs.vhd at all, and does it ever
+      -- attempt the specific command that would set R? REMOVE once done.
+      if unsigned(vpos_s) >= 8 and unsigned(vpos_s) < 16 and
+         unsigned(hpos_s) < 32 then
+        case to_integer(unsigned(hpos_s(4 downto 3))) is
+          when 0 =>
+            if ef_dbg_any_cs_s = '1' then
+              r_o <= '1'; g_o <= '0'; b_o <= '0';
+            else
+              r_o <= '0'; g_o <= '1'; b_o <= '0';
+            end if;
+          when 1 =>
+            if ef_dbg_any_wr_s = '1' then
+              r_o <= '1'; g_o <= '0'; b_o <= '0';
+            else
+              r_o <= '0'; g_o <= '1'; b_o <= '0';
+            end if;
+          when 2 =>
+            if ef_dbg_any_rd_s = '1' then
+              r_o <= '1'; g_o <= '0'; b_o <= '0';
+            else
+              r_o <= '0'; g_o <= '1'; b_o <= '0';
+            end if;
+          when others =>
+            if ef_dbg_any_ldr_cmd_s = '1' then
+              r_o <= '1'; g_o <= '0'; b_o <= '0';
+            else
+              r_o <= '0'; g_o <= '1'; b_o <= '0';
+            end if;
+        end case;
+        l_mixed_s <= '1';
+      end if;
+
+      -- DIAGNOSTIC (temporary): third/fourth rows - live readout of the
+      -- raw TA (row 3, vpos 16-23) and TB (row 4, vpos 24-31) latch
+      -- register bytes, same 8-block/bit scheme as the R row. Lets us
+      -- see the actual raw command/data bytes flowing over the CPU bus
+      -- to this chip, to check e.g. whether TB ever shows the 0xA0-0xBF
+      -- "load R" pattern together with a nonzero TA. REMOVE once done.
+      if unsigned(vpos_s) >= 16 and unsigned(vpos_s) < 24 and
+         unsigned(hpos_s) < 64 then
+        if ef_dbg_ta_s(7 - to_integer(unsigned(hpos_s(5 downto 3)))) = '1' then
+          r_o <= '1'; g_o <= '0'; b_o <= '0'; l_mixed_s <= '1';
+        else
+          r_o <= '0'; g_o <= '1'; b_o <= '0'; l_mixed_s <= '1';
+        end if;
+      end if;
+      if unsigned(vpos_s) >= 24 and unsigned(vpos_s) < 32 and
+         unsigned(hpos_s) < 64 then
+        if ef_dbg_tb_s(7 - to_integer(unsigned(hpos_s(5 downto 3)))) = '1' then
+          r_o <= '1'; g_o <= '0'; b_o <= '0'; l_mixed_s <= '1';
+        else
+          r_o <= '0'; g_o <= '1'; b_o <= '0'; l_mixed_s <= '1';
+        end if;
+      end if;
+
+      -- DIAGNOSTIC (temporary): fifth row (vpos 32-39) - live readout of
+      -- the last value actually returned to the CPU on a read (dout_q),
+      -- same 8-block scheme. Useful to check whether the BIOS's own
+      -- chip-presence/detection reads (if any) get plausible data back,
+      -- as opposed to a stuck/wrong value. REMOVE once done.
+      if unsigned(vpos_s) >= 32 and unsigned(vpos_s) < 40 and
+         unsigned(hpos_s) < 64 then
+        if ef_dbg_dout_s(7 - to_integer(unsigned(hpos_s(5 downto 3)))) = '1' then
+          r_o <= '1'; g_o <= '0'; b_o <= '0'; l_mixed_s <= '1';
+        else
+          r_o <= '0'; g_o <= '1'; b_o <= '0'; l_mixed_s <= '1';
+        end if;
+      end if;
+
+      -- DIAGNOSTIC (temporary): sixth row (vpos 40-47) - sticky per-
+      -- command-pattern "ever issued" flags (bit N = pattern N, MSB/bit7
+      -- leftmost i.e. block1=pattern7="111"/not interpreted, ...,
+      -- block3=pattern5="101"=load R same as row2 block4, block8=
+      -- pattern0="000"=begin row). Reveals whether ANY command register
+      -- write ever triggers at all (vs. only plain TA/TB data/RAM
+      -- writes). REMOVE once done.
+      if unsigned(vpos_s) >= 40 and unsigned(vpos_s) < 48 and
+         unsigned(hpos_s) < 64 then
+        if ef_dbg_any_cmd_s(7 - to_integer(unsigned(hpos_s(5 downto 3)))) = '1' then
+          r_o <= '1'; g_o <= '0'; b_o <= '0'; l_mixed_s <= '1';
+        else
+          r_o <= '0'; g_o <= '1'; b_o <= '0'; l_mixed_s <= '1';
+        end if;
+      end if;
+
+      -- DIAGNOSTIC (temporary): seventh row (vpos 48-55, half-width like
+      -- row2) - sticky "ever written with this addr_i value" flags,
+      -- block1=addr"00"(TA/data reg), block2=addr"01"(TB/data reg - the
+      -- REAL character-RAM write path), block3=addr"10"(TA/command reg),
+      -- block4=addr"11"(TB/command reg). Tests whether addr_i(1) is
+      -- stuck, i.e. whether the data-register (RAM write) path is ever
+      -- reached at all. REMOVE once done.
+      if unsigned(vpos_s) >= 48 and unsigned(vpos_s) < 56 and
+         unsigned(hpos_s) < 32 then
+        if ef_dbg_any_wr_addr_s(to_integer(unsigned(hpos_s(4 downto 3)))) = '1' then
+          r_o <= '1'; g_o <= '0'; b_o <= '0'; l_mixed_s <= '1';
+        else
+          r_o <= '0'; g_o <= '1'; b_o <= '0'; l_mixed_s <= '1';
+        end if;
+      end if;
+
+      -- DIAGNOSTIC (temporary): 1px BLUE grid lines at every 8x8 block
+      -- boundary (last pixel row/column of each block), drawn ON TOP of
+      -- everything above - makes block counts unambiguous in a scaled/
+      -- compressed screenshot (BLUE is otherwise unused in this overlay,
+      -- so it can only mean "grid line" - REMOVE once done.
+      if unsigned(vpos_s) < 56 and unsigned(hpos_s) < 64 and
+         (hpos_s(2 downto 0) = "111" or vpos_s(2 downto 0) = "111") then
+        r_o <= '0'; g_o <= '0'; b_o <= '1'; l_mixed_s <= '1';
+      end if;
+    else
+      r_o     <= r_from_vdc_s;
+      g_o     <= g_from_vdc_s;
+      b_o     <= b_from_vdc_s;
+      l_mixed_s <= l_from_vdc_s;
+    end if;
+  end process mix;
 
 
   -- pragma translate_off
@@ -416,6 +785,7 @@ begin
   -- Read MUX
   -----------------------------------------------------------------------------
   db_to_cpu_s <= d_from_vdc_s when vdc_cs_n_s = '0' and vdc_rd_n_s = '0' else
+                 d_from_vpp_s when vpp_cs_n_s = '0' and vpp_rd_n_s = '0' else
                  d_from_ram_s when ram_cs_s = '1' and ram_cs_n_s = '0'   else
                  joys_s(0)    when rd_n_s = '0' and keyb_dec_s(2) = '0'  else
                  joys_s(1)    when rd_n_s = '0' and keyb_dec_s(1) = '0'  else

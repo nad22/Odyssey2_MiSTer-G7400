@@ -195,7 +195,18 @@ begin
   begin
     if reset_n_i = '0' then
       px_en_q    <= (others => '0');
-      px_latch_q <= (others => (others => '0'));
+      -- Reset the port output latches to all-ONES rather than all-zero.
+      -- This core is used in this project exclusively to load the G7400's
+      -- EF9340/i8244 colour-mixing priority tables (see vp_console.vhd).
+      -- MAME's odyssey2.cpp vpp_state driver explicitly initialises its
+      -- equivalent mix_i8244/mix_ef934x variables to 0xff at machine_start,
+      -- so that the i8244 (VDC) picture is shown by default until the G7400
+      -- BIOS reprograms the tables. Resetting to all-zero here instead made
+      -- the EF9340 layer (which itself defaults to solid black, since its
+      -- RAM A/B also reset to zero) win the mix by default, producing a
+      -- black screen for as long as - or if - the BIOS never gets around to
+      -- (re)programming the tables.
+      px_latch_q <= (others => (others => '1'));
 
     elsif rising_edge(clk_i) then
       if cs_n_i = '0' and clk_rise_en_i = '1' then

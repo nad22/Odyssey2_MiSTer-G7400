@@ -83,7 +83,10 @@ entity i8244_top_sync is
     snd_vec_o  : out std_logic_vector(3 downto 0);
 	 char_a_o   : out std_logic_vector(8 downto 0);
 	 char_d_i   : in  std_logic_vector(7 downto 0);
-	 char_en    : out std_logic
+	 char_en    : out std_logic;
+    -- Video Timing Interface (for EF9340/9341 sync) ---------------------------
+    hpos_o     : out std_logic_vector(8 downto 0);
+    vpos_o     : out std_logic_vector(8 downto 0)
   );
 
 end i8244_top_sync;
@@ -137,7 +140,9 @@ begin
       b_o        => b_o,
       ale_i      => ale_i,
       snd_o      => snd_o,
-      snd_vec_o  => snd_vec_o
+      snd_vec_o  => snd_vec_o,
+      hpos_o     => hpos_o,
+      vpos_o     => vpos_o
     );
 
 

@@ -77,7 +77,10 @@ entity t8048_notri is
     p1_i          : in  std_logic_vector( 7 downto 0);
     p1_o          : out std_logic_vector( 7 downto 0);
     p1_low_imp_o  : out std_logic;
-    prog_n_o      : out std_logic
+    prog_n_o      : out std_logic;
+    -- selects the embedded G7400/"Odyssey 3" internal CPU BIOS (rom_g7400)
+    -- in place of the classic Odyssey2/Videopac BIOS (rom_t48) -------------
+    is_g7400_i    : in  std_logic := '0'
   );
 
 end t8048_notri;
@@ -102,6 +105,8 @@ architecture struct of t8048_notri is
   signal dmem_data_to_s   : std_logic_vector( 7 downto 0);
   signal pmem_addr_s      : std_logic_vector(11 downto 0);
   signal pmem_data_s      : std_logic_vector( 7 downto 0);
+  signal pmem_data_rom_s  : std_logic_vector( 7 downto 0);
+  signal pmem_data_g7400_s : std_logic_vector( 7 downto 0);
 
   signal ea_s             : std_logic;
 
@@ -224,8 +229,20 @@ begin
     port map (
       clk_i      => xtal_i,
       rom_addr_i => pmem_addr_s(rom_addr_width_c-1 downto 0),
-      rom_data_o => pmem_data_s
+      rom_data_o => pmem_data_rom_s
     );
+
+  -- embedded G7400/"Odyssey 3" internal CPU BIOS (compile-time constant,
+  -- same construction as rom_t48 above) - selected purely by is_g7400_i,
+  -- i.e. by the "System" OSD option, no runtime loading involved.
+  rom_g7400_b : entity work.rom_g7400
+    port map (
+      CLK => xtal_i,
+      A   => pmem_addr_s(rom_addr_width_c-1 downto 0),
+      D   => pmem_data_g7400_s
+    );
+
+  pmem_data_s <= pmem_data_g7400_s when is_g7400_i = '1' else pmem_data_rom_s;
 
   ram_64_b : generic_ram_ena
     generic map (

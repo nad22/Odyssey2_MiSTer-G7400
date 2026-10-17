@@ -241,8 +241,9 @@ localparam CONF_STR = {
 	"F2,ROM,Load XROM;",
 	"-;",
 	"F3,CHR,Change VDC font;",
+	"F4,CHR,Load G7400 charset;",
 	"-;",
-   "OF,System,Odyssey2,Videopac;",
+   "OFG,System,Odyssey2,Videopac,G7400;",
    "OCE,G7200,Off,Contrast 1,Contrast 2,Contrast 3,Contrast 4,Contrast 5,Contrast 6,Contrast 7;",
  	"OIJ,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
@@ -298,7 +299,8 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.ps2_key(ps2_key)
 );
 
-wire       PAL = status[15];
+wire       PAL = status[16:15] != 2'd0;
+wire       is_g7400 = status[16:15] == 2'd2;
 wire       joy_swap = status[7];
 
 wire       VOICE = status[1];
@@ -373,7 +375,7 @@ always @(posedge CLK_50M) begin : cfg_block
 	reg pald = 0, pald2 = 0;
 	reg [3:0] state = 0;
 
-	pald <= status[15];
+	pald <= status[16:15] != 2'd0;
 	pald2 <= pald;
 
 	cfg_write <= 0;
@@ -418,12 +420,17 @@ end
 
 // hold machine in reset until first download starts
 reg old_pal = 0;
+reg old_g7400 = 0;
 
 always @(posedge clk_sys) begin
 	old_pal <= PAL;
+	old_g7400 <= is_g7400;
 end
 
-wire reset = buttons[1] | status[0] | ioctl_download | (old_pal != PAL);
+// Videopac<->G7400 both force PAL=1, so a PAL-only compare misses that
+// switch entirely (CPU/BIOS keep running unreset while is_g7400 flips
+// underneath them) - also reset on any is_g7400 change.
+wire reset = buttons[1] | status[0] | ioctl_download | (old_pal != PAL) | (old_g7400 != is_g7400);
 
 // Original Clocks:
 // Standard    NTSC           PAL
@@ -504,6 +511,12 @@ vp_console vp
 	.char_a_o       (char_addr),
 	.char_en        (char_en),
 
+	// G7400 / EF9340-9341
+	.is_g7400_i     (is_g7400),
+	.ef_char_a_o    (ef_char_addr),
+	.ef_char_d_i    (ef_char_do),
+	.ef_char_en_o   (),
+
 
 	// Input
 	.joy_up_n_i     (joy_up), //-- idx = 0 : left joystick -- idx = 1 : right joystick
@@ -555,10 +568,21 @@ char_rom  char_rom
 	.q(char_do)
 );
 
+ef_char_rom  ef_char_rom
+(
+	.clock(clk_sys),
+	.address((ioctl_download && ioctl_index == 4) ? ioctl_addr[11:0] : ef_char_addr),
+	.data(ioctl_dout),
+	.wren(ioctl_wr && ioctl_index == 4),
+	.q(ef_char_do)
+);
+
 wire [11:0] cart_addr;
 wire [7:0]  cart_do;
 wire [11:0] char_addr;
 wire [7:0]  char_do;
+wire [11:0] ef_char_addr;
+wire [7:0]  ef_char_do;
 wire cart_wr_n;
 wire [7:0] cart_di;
 

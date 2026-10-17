@@ -63,7 +63,8 @@ package t48_system_comp_pack is
       p1_i          : in  std_logic_vector( 7 downto 0);
       p1_o          : out std_logic_vector( 7 downto 0);
       p1_low_imp_o  : out std_logic;
-      prog_n_o      : out std_logic
+      prog_n_o      : out std_logic;
+      is_g7400_i    : in  std_logic := '0'
     );
   end component;
 

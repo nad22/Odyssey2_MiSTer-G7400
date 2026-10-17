@@ -84,7 +84,10 @@ entity i8244_core is
     b_o        : out std_logic;
     ale_i      : in  std_logic;
     snd_o      : out std_logic;
-    snd_vec_o  : out std_logic_vector(3 downto 0)
+    snd_vec_o  : out std_logic_vector(3 downto 0);
+    -- Video Timing Interface (for EF9340/9341 sync) ---------------------------
+    hpos_o     : out std_logic_vector(8 downto 0);
+    vpos_o     : out std_logic_vector(8 downto 0)
   );
 
 end i8244_core;
@@ -200,6 +203,8 @@ begin
   --
   vbl_o <= vbl_s;
   hbl_o <= hbl_s;
+  hpos_o <= std_logic_vector(hpos_s);
+  vpos_o <= std_logic_vector(vpos_s);
 
 
   -----------------------------------------------------------------------------

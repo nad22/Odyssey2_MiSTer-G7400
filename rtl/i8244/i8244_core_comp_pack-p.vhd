@@ -60,7 +60,10 @@ package i8244_core_comp_pack is
       b_o        : out std_logic;
       ale_i      : in  std_logic;
       snd_o      : out std_logic;
-      snd_vec_o  : out std_logic_vector(3 downto 0)
+      snd_vec_o  : out std_logic_vector(3 downto 0);
+      -- Video Timing Interface -------------------------------------------
+      hpos_o     : out std_logic_vector(8 downto 0);
+      vpos_o     : out std_logic_vector(8 downto 0)
     );
   end component;
 
@@ -99,7 +102,10 @@ package i8244_core_comp_pack is
       snd_vec_o  : out std_logic_vector(3 downto 0);
 		char_a_o   : out std_logic_vector(8 downto 0);
       char_d_i   : in  std_logic_vector(7 downto 0);
-		char_en    : out std_logic
+		char_en    : out std_logic;
+      -- Video Timing Interface -------------------------------------------
+      hpos_o     : out std_logic_vector(8 downto 0);
+      vpos_o     : out std_logic_vector(8 downto 0)
     );
   end component;
 

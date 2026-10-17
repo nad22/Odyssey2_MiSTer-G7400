@@ -2,12 +2,14 @@ set_global_assignment -name SDC_FILE Odyssey2.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE Odyssey2.sv
 set_global_assignment -name QIP_FILE rtl/rom/char_rom.qip
 set_global_assignment -name QIP_FILE rtl/rom/rom.qip
+set_global_assignment -name VERILOG_FILE rtl/rom/ef_char_rom.v
 set_global_assignment -name VERILOG_FILE rtl/vga_to_greyscale.v
 set_global_assignment -name VHDL_FILE rtl/sp0256/sp0256.vhd
 set_global_assignment -name QIP_FILE rtl/sp0256/pll_thevoice.qip
 set_global_assignment -name VHDL_FILE rtl/sp0256/fifo.vhd
 set_global_assignment -name QIP_FILE rtl/sp0256/sp256_003.qip
 set_global_assignment -name VHDL_FILE rtl/t48/rom_t48.vhd
+set_global_assignment -name VHDL_FILE rtl/t48/rom_g7400.vhd
 set_global_assignment -name VHDL_FILE rtl/vp_keymap-c.vhd
 set_global_assignment -name VHDL_FILE rtl/vp_keymap.vhd
 set_global_assignment -name VHDL_FILE rtl/configurations/rom_t48-c.vhd
@@ -62,6 +64,7 @@ set_global_assignment -name VHDL_FILE rtl/t48/bus_mux.vhd
 set_global_assignment -name VHDL_FILE rtl/t48/alu-c.vhd
 set_global_assignment -name VHDL_FILE rtl/t48/alu_pack-p.vhd
 set_global_assignment -name VHDL_FILE rtl/t48/alu.vhd
+set_global_assignment -name VHDL_FILE rtl/t48/t8243/t8243_core.vhd
 set_global_assignment -name VHDL_FILE rtl/configurations/vp_glue-c.vhd
 set_global_assignment -name VHDL_FILE rtl/configurations/vp_console-c.vhd
 set_global_assignment -name VHDL_FILE rtl/i8244/i8244_top_sync-c.vhd
@@ -97,6 +100,9 @@ set_global_assignment -name VHDL_FILE rtl/i8244/i8244_col_mux.vhd
 set_global_assignment -name VHDL_FILE rtl/i8244/i8244_charset_rom-c.vhd
 set_global_assignment -name VHDL_FILE rtl/i8244/i8244_charset_rom.vhd
 set_global_assignment -name VHDL_FILE rtl/vp_tb_pack-p.vhd
+set_global_assignment -name VHDL_FILE rtl/ef9340/ef9341_regs.vhd
+set_global_assignment -name VHDL_FILE rtl/ef9340/ef9340_video.vhd
+set_global_assignment -name VHDL_FILE rtl/ef9340/ef9340_top.vhd
 set_global_assignment -name VHDL_FILE rtl/vp_glue.vhd
 set_global_assignment -name VHDL_FILE rtl/vp_console_comp_pack-p.vhd
 set_global_assignment -name VHDL_FILE rtl/vp_console.vhd
