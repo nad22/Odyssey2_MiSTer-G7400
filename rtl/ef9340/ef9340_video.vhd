@@ -51,6 +51,10 @@ entity ef9340_video is
     char_a_o   : out std_logic_vector(11 downto 0);
     char_d_i   : in  std_logic_vector(7 downto 0);
 
+    -- external (cart-defined) character RAM, same 1 clock read latency ----
+    exr_a_o    : out std_logic_vector(19 downto 0);
+    exr_d_i    : in  std_logic_vector(7 downto 0);
+
     -- pixel output (registered, 1 hpos-tick pipeline) -----------------------
     rgb_o      : out std_logic_vector(2 downto 0);
     opaque_o   : out std_logic
@@ -120,6 +124,24 @@ architecture rtl of ef9340_video is
     idx_v  := unsigned(set_i & code_i);
     addr_v := resize(idx_v * 10, 12) + resize(slice_i, 12);
     return std_logic_vector(addr_v);
+  end function;
+
+  function resolve_slice_f(a_i : std_logic_vector(7 downto 0);
+                           slice_i : unsigned(3 downto 0);
+                           h_parity_i : std_logic)
+    return unsigned is
+    variable s_v : unsigned(4 downto 0);
+  begin
+    s_v := resize(slice_i, 5);
+    if a_i(7) = '0' and a_i(4) = '1' then
+      if h_parity_i = '1' then
+        s_v := s_v + 10;
+      end if;
+      if s_v > 0 then
+        s_v := (s_v - 1) / 2;
+      end if;
+    end if;
+    return s_v(3 downto 0);
   end function;
 
   -- Resolves the char-generator ROM address for whichever column's a/b
@@ -368,7 +390,7 @@ begin
               if b_v(7 downto 5) = "100" then
                 pattern_v := x"00FF";
               elsif b_v(7) = '1' then
-                pattern_v := x"00FF"; -- exram not implemented
+                pattern_v := "00000000" & exr_d_i;
               else
                 set_v      := '1';
                 code_v     := b_v(6 downto 0);
@@ -397,7 +419,7 @@ begin
                 end if;
 
                 if b_v(7) = '1' then
-                  c_v := x"FF"; -- exram not implemented
+                  c_v := exr_d_i;
                 elsif s_v = 9 and underline_v = '1' then
                   c_v := x"FF";
                 else
@@ -495,6 +517,7 @@ begin
             -- onward, thanks to the vid_addr_o "col_s+1" prefetch above).
             if dot_s = 1 then
               char_a_o <= resolve_char_a_f(vid_a_i, vid_b_i, slice_r, h_parity_r);
+              exr_a_o  <= vid_a_i & vid_b_i & std_logic_vector(resolve_slice_f(vid_a_i, slice_r, h_parity_r));
             end if;
 
             if row_active_v = '0' then

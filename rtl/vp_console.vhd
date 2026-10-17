@@ -537,9 +537,9 @@ begin
         b_o     <= b_from_vdc_s;
         l_mixed_s <= l_from_vdc_s;
       else
-        r_o     <= ef_rgb_s(2);
+        r_o     <= ef_rgb_s(0);
         g_o     <= ef_rgb_s(1);
-        b_o     <= ef_rgb_s(0);
+        b_o     <= ef_rgb_s(2);
         l_mixed_s <= not mix_ef9340_s(to_integer(unsigned(ef_rgb_s)));
       end if;
 

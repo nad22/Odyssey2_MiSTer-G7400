@@ -242,7 +242,9 @@ begin
                     ram_b_q(to_integer(caddr_v)) <= wdata_q;
                   when "100" =>             -- write slice (exram)
                     slice_v    := unsigned(m_q(3 downto 0));
-                    exram_we_q <= '1';
+                    if unsigned(ram_b_q(to_integer(caddr_v))) >= 16#A0# then
+                      exram_we_q <= '1';
+                    end if;
                     exram_a_o  <= ram_a_q(to_integer(caddr_v)) &
                                   ram_b_q(to_integer(caddr_v)) &
                                   std_logic_vector(slice_v);

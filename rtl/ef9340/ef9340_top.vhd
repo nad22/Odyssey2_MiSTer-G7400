@@ -6,9 +6,8 @@
 -- (scanline/column renderer) into a single instantiable block for
 -- vp_console.vhd.
 --
--- Extended/external character memory ("exram") is not implemented - tied
--- off internally (documented limitation, see repo memory file
--- g7400-implementation-plan.md).
+-- Extended character memory ("exram", 2 KB, cart-defined glyphs written by\r
+-- the write-slice command) is implemented here; the read-slice command is not.
 --
 -------------------------------------------------------------------------------
 
@@ -61,7 +60,41 @@ architecture rtl of ef9340_top is
   signal exram_d_s   : std_logic_vector(7 downto 0);
   signal exram_we_s  : std_logic;
 
+  signal exr_a_s     : std_logic_vector(19 downto 0);
+  signal exr_q       : std_logic_vector(7 downto 0);
+  type exmem_t is array (0 to 2047) of std_logic_vector(7 downto 0);
+  signal exmem_s     : exmem_t := (others => (others => '0'));
+
+  -- 20 bit a&b&slice to 11 bit RAM index, same folding as MAME odyssey2.cpp
+  function exidx_f(a_i : std_logic_vector(19 downto 0)) return integer is
+    variable l_v : std_logic_vector(7 downto 0);
+    variable r_v : std_logic_vector(10 downto 0);
+  begin
+    l_v := a_i(19) & a_i(10 downto 4);
+    r_v := (others => '0');
+    r_v(4 downto 0) := l_v(4 downto 0);
+    r_v(9) := a_i(0);
+    r_v(10) := l_v(7);
+    if a_i(3) = '1' then
+      r_v(6 downto 5) := l_v(6 downto 5);
+    else
+      r_v(6 downto 5) := a_i(2 downto 1);
+      r_v(8 downto 7) := l_v(6 downto 5);
+    end if;
+    return to_integer(unsigned(r_v));
+  end function;
+
 begin
+
+  process (clk_i)
+  begin
+    if rising_edge(clk_i) then
+      if exram_we_s = '1' then
+        exmem_s(exidx_f(exram_a_s)) <= exram_d_s;
+      end if;
+      exr_q <= exmem_s(exidx_f(exr_a_s));
+    end if;
+  end process;
 
   regs_b: entity work.ef9341_regs
     port map (
@@ -103,6 +136,8 @@ begin
       vid_b_i    => vid_b_s,
       char_a_o   => char_a_o,
       char_d_i   => char_d_i,
+      exr_a_o    => exr_a_s,
+      exr_d_i    => exr_q,
       rgb_o      => rgb_o,
       opaque_o   => opaque_o
     );
