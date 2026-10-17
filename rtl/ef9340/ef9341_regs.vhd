@@ -49,28 +49,7 @@ entity ef9341_regs is
     exram_a_o  : out std_logic_vector(19 downto 0);
     exram_d_o  : out std_logic_vector(7 downto 0);
     exram_d_i  : in  std_logic_vector(7 downto 0);
-    exram_we_o : out std_logic;
-    -- DIAGNOSTIC (temporary): sticky "ever happened" flags for the CPU
-    -- write-path investigation - REMOVE once done, see repo memory file.
-    dbg_any_cs_o : out std_logic;
-    dbg_any_wr_o : out std_logic;
-    dbg_any_rd_o : out std_logic;
-    dbg_any_ldr_cmd_o : out std_logic;
-    -- DIAGNOSTIC (temporary): sticky per-command-pattern "ever issued"
-    -- flags, one bit per TB command top-3-bits pattern (bit N = pattern
-    -- N, N=0..7, e.g. bit5="101"=load R, matching dbg_any_ldr_cmd_o) -
-    -- to check whether ANY command trigger write ever happens at all
-    -- (as opposed to only plain TA/TB data/RAM writes). REMOVE once done.
-    dbg_any_cmd_o : out std_logic_vector(7 downto 0);
-    -- DIAGNOSTIC (temporary): sticky per-address-value "ever written"
-    -- flags, bit N (N=0..3) latches when a write cycle occurs with
-    -- addr_i = N (binary) - tests whether the addr_i(1) "command vs
-    -- data register" select bit is stuck, since bit1 (addr "01") is the
-    -- REAL character-RAM write path. REMOVE once done.
-    dbg_any_wr_addr_o : out std_logic_vector(3 downto 0);
-    dbg_ta_o     : out std_logic_vector(7 downto 0);
-    dbg_tb_o     : out std_logic_vector(7 downto 0);
-    dbg_dout_o   : out std_logic_vector(7 downto 0)
+    exram_we_o : out std_logic
   );
 
 end ef9341_regs;
@@ -94,13 +73,12 @@ architecture rtl of ef9341_regs is
   signal rd_n_d_q,
          wr_n_d_q   : std_logic;
 
-  -- DIAGNOSTIC (temporary): see dbg_any_*_o port comments above.
-  signal dbg_any_cs_q,
-         dbg_any_wr_q,
-         dbg_any_rd_q,
-         dbg_any_ldr_cmd_q : std_logic := '0';
-  signal dbg_any_cmd_q : std_logic_vector(7 downto 0) := (others => '0');
-  signal dbg_any_wr_addr_q : std_logic_vector(3 downto 0) := (others => '0');
+  -- Write data/address are captured while WR is low and committed on the
+  -- rising edge: on the 8048 bus the data byte is not yet on DB at the
+  -- falling edge of WR (DB still carries the latched address).
+  signal wr_pend_q  : std_logic;
+  signal wdata_q    : std_logic_vector(7 downto 0);
+  signal waddr_q    : std_logic_vector(1 downto 0);
 
   -- packed helper: X/Y increment as specified by the EF9340 "increment C"
   -- command (also triggered implicitly by the auto-increment read/write
@@ -158,17 +136,6 @@ begin
   dout_o     <= dout_q;
   exram_we_o <= exram_we_q;
 
-  -- DIAGNOSTIC (temporary): see dbg_any_*_o port comments above.
-  dbg_any_cs_o <= dbg_any_cs_q;
-  dbg_any_wr_o <= dbg_any_wr_q;
-  dbg_any_rd_o <= dbg_any_rd_q;
-  dbg_any_ldr_cmd_o <= dbg_any_ldr_cmd_q;
-  dbg_any_cmd_o <= dbg_any_cmd_q;
-  dbg_any_wr_addr_o <= dbg_any_wr_addr_q;
-  dbg_ta_o     <= ta_q;
-  dbg_tb_o     <= tb_q;
-  dbg_dout_o   <= dout_q;
-
   -- video side RAM read port (asynchronous, small RAM - fine for
   -- distributed/LUT RAM inference)
   vid_a_o <= ram_a_q(to_integer(unsigned(vid_addr_i)));
@@ -180,7 +147,8 @@ begin
   -- Purpose:
   --   Implements the CPU visible registers, the RAM A/B write port and
   --   the EF9340/EF9341 command decoding. Bus cycles are recognized on
-  --   the falling edge of wr_n_i / rd_n_i while cs_n_i is asserted.
+  --   the falling edge of rd_n_i while cs_n_i is asserted; writes are
+  --   committed on the rising edge of wr_n_i (see wdata_q).
   --
   cpu_if: process (clk_i, res_n_i)
     variable caddr_v : unsigned(9 downto 0);
@@ -201,13 +169,9 @@ begin
       exram_d_o   <= (others => '0');
       rd_n_d_q    <= '1';
       wr_n_d_q    <= '1';
-      dbg_any_cs_q <= '0';
-      dbg_any_wr_q <= '0';
-      dbg_any_rd_q <= '0';
-      dbg_any_ldr_cmd_q <= '0';
-      dbg_any_cmd_q <= (others => '0');
-      dbg_any_wr_addr_q <= (others => '0');
-
+      wr_pend_q   <= '0';
+      wdata_q     <= (others => '0');
+      waddr_q     <= (others => '0');
     elsif rising_edge(clk_i) then
       -- Sampled every clk_i, NOT gated by clk_en_i: the CPU bus (wr_n_i/
       -- rd_n_i) runs synchronous to clk_cpu_en_i, a different and
@@ -219,38 +183,24 @@ begin
 
       exram_we_q <= '0';
 
-      if cs_n_i = '0' then
+      if cs_n_i = '0' and wr_n_i = '0' then
+        wr_pend_q <= '1';
+        wdata_q   <= din_i;
+        waddr_q   <= addr_i;
+      elsif wr_n_i = '1' then
+        wr_pend_q <= '0';
+      end if;
 
-          -- DIAGNOSTIC (temporary): latch sticky "chip was ever selected /
-          -- written / read at all" flags, independent of address/data
-          -- content - REMOVE once the CPU write-path investigation is
-          -- done.
-          dbg_any_cs_q <= '1';
-          if wr_n_d_q = '1' and wr_n_i = '0' then
-            dbg_any_wr_q <= '1';
-            -- DIAGNOSTIC (temporary): see dbg_any_wr_addr_o port comment
-            -- above - independent of decode/case logic below.
-            dbg_any_wr_addr_q(to_integer(unsigned(addr_i))) <= '1';
-          end if;
-          if rd_n_d_q = '1' and rd_n_i = '0' then
-            dbg_any_rd_q <= '1';
-          end if;
+      -------------------------------------------------------------------
+      -- write cycle (committed on the rising edge of wr_n_i)
+      -------------------------------------------------------------------
+      if wr_pend_q = '1' and wr_n_i = '1' then
 
-          ---------------------------------------------------------------
-          -- write cycle (falling edge of wr_n_i)
-          ---------------------------------------------------------------
-          if wr_n_d_q = '1' and wr_n_i = '0' then
-
-            if addr_i(1) = '1' then
+            if waddr_q(1) = '1' then
               -- command register --------------------------------------
-              if addr_i(0) = '1' then
-                tb_q <= din_i;
-                -- DIAGNOSTIC (temporary): sticky - one bit per command
-                -- top-3-bits pattern, marks that THIS exact command
-                -- register write (address "11") happened at least once,
-                -- regardless of which pattern. REMOVE once done.
-                dbg_any_cmd_q(to_integer(unsigned(din_i(7 downto 5)))) <= '1';
-                case din_i(7 downto 5) is
+              if waddr_q(0) = '1' then
+                tb_q <= wdata_q;
+                case wdata_q(7 downto 5) is
                   when "000" =>             -- begin row
                     x_q <= (others => '0');
                     y_q <= unsigned(ta_q(4 downto 0));
@@ -266,35 +216,30 @@ begin
                     m_q <= ta_q;
                   when "101" =>             -- load R
                     r_q <= ta_q;
-                    -- DIAGNOSTIC (temporary): sticky - proves the exact
-                    -- "load R" command byte pattern was actually issued
-                    -- by the CPU at least once, regardless of the R
-                    -- value that ends up latched (ta_q could be 0).
-                    dbg_any_ldr_cmd_q <= '1';
                   when "110" =>             -- load Y0
                     y0_q <= unsigned(ta_q(5 downto 0));
                   when others =>            -- not interpreted
                     null;
                 end case;
               else
-                ta_q <= din_i;
+                ta_q <= wdata_q;
               end if;
 
             else
               -- data register -------------------------------------------
-              if addr_i(0) = '1' then
-                tb_q     <= din_i;
+              if waddr_q(0) = '1' then
+                tb_q     <= wdata_q;
                 caddr_v  := get_c_addr_f(x_q, y_q);
                 case m_q(7 downto 5) is
                   when "000" =>             -- write + increment
                     ram_a_q(to_integer(caddr_v)) <= ta_q;
-                    ram_b_q(to_integer(caddr_v)) <= din_i;
+                    ram_b_q(to_integer(caddr_v)) <= wdata_q;
                     xy_v := inc_c_f(x_q, y_q);
                     y_q  <= unsigned(xy_v(11 downto 7));
                     x_q  <= unsigned(xy_v(6 downto 0));
                   when "010" =>             -- write, no increment
                     ram_a_q(to_integer(caddr_v)) <= ta_q;
-                    ram_b_q(to_integer(caddr_v)) <= din_i;
+                    ram_b_q(to_integer(caddr_v)) <= wdata_q;
                   when "100" =>             -- write slice (exram)
                     slice_v    := unsigned(m_q(3 downto 0));
                     exram_we_q <= '1';
@@ -311,11 +256,13 @@ begin
                     null;
                 end case;
               else
-                ta_q <= din_i;
+                ta_q <= wdata_q;
               end if;
             end if;
 
           end if;
+
+      if cs_n_i = '0' then
 
           ---------------------------------------------------------------
           -- read cycle (falling edge of rd_n_i)

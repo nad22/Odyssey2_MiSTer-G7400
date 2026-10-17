@@ -41,21 +41,7 @@ entity ef9340_top is
 
     -- pixel output -------------------------------------------------------------
     rgb_o      : out std_logic_vector(2 downto 0);
-    opaque_o   : out std_logic;
-
-    -- DIAGNOSTIC (temporary): live readout of the R register, for an
-    -- on-screen debug overlay (see vp_console.vhd) - REMOVE once the
-    -- CPU write-path investigation is concluded.
-    dbg_r_o    : out std_logic_vector(7 downto 0);
-    dbg_any_cs_o : out std_logic;
-    dbg_any_wr_o : out std_logic;
-    dbg_any_rd_o : out std_logic;
-    dbg_any_ldr_cmd_o : out std_logic;
-    dbg_any_cmd_o : out std_logic_vector(7 downto 0);
-    dbg_any_wr_addr_o : out std_logic_vector(3 downto 0);
-    dbg_ta_o   : out std_logic_vector(7 downto 0);
-    dbg_tb_o   : out std_logic_vector(7 downto 0);
-    dbg_dout_o : out std_logic_vector(7 downto 0)
+    opaque_o   : out std_logic
   );
 
 end ef9340_top;
@@ -76,9 +62,6 @@ architecture rtl of ef9340_top is
   signal exram_we_s  : std_logic;
 
 begin
-
-  -- DIAGNOSTIC (temporary): see dbg_r_o port comment above.
-  dbg_r_o <= reg_r_s;
 
   regs_b: entity work.ef9341_regs
     port map (
@@ -101,16 +84,7 @@ begin
       exram_a_o  => exram_a_s,
       exram_d_o  => exram_d_s,
       exram_d_i  => x"FF",
-      exram_we_o => exram_we_s,
-      dbg_any_cs_o => dbg_any_cs_o,
-      dbg_any_wr_o => dbg_any_wr_o,
-      dbg_any_rd_o => dbg_any_rd_o,
-      dbg_any_ldr_cmd_o => dbg_any_ldr_cmd_o,
-      dbg_any_cmd_o => dbg_any_cmd_o,
-      dbg_any_wr_addr_o => dbg_any_wr_addr_o,
-      dbg_ta_o   => dbg_ta_o,
-      dbg_tb_o   => dbg_tb_o,
-      dbg_dout_o => dbg_dout_o
+      exram_we_o => exram_we_s
     );
 
   video_b: entity work.ef9340_video
