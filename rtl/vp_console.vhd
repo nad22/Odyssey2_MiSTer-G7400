@@ -526,7 +526,8 @@ begin
     variable i8244_rgb_v : std_logic_vector(2 downto 0);
     variable use_i8244_v : boolean;
   begin
-    i8244_rgb_v := r_from_vdc_s & g_from_vdc_s & b_from_vdc_s;
+    -- mix tables are indexed like MAME's colour index: bit0=R, bit1=G, bit2=B
+    i8244_rgb_v := b_from_vdc_s & g_from_vdc_s & r_from_vdc_s;
 
     if is_g7400_i = '1' then
       use_i8244_v := ef_opaque_s = '0' or
