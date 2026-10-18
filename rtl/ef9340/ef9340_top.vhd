@@ -142,4 +142,5 @@ begin
       opaque_o   => opaque_o
     );
 
+
 end rtl;

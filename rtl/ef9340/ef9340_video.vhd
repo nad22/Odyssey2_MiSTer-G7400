@@ -218,7 +218,11 @@ begin
   render: process (clk_i, res_n_i)
     variable a_v, b_v          : std_logic_vector(7 downto 0);
     variable fg_v, bg_v        : std_logic_vector(2 downto 0);
-    variable pattern_v         : std_logic_vector(15 downto 0);
+    -- fg/bg persist from cell to cell within a scanline (MAME: they are
+    -- declared outside the column loop), so alphanumeric cells inherit the
+    -- background of the last graphics cell / deliminator on their left.
+    variable fgk_v, bgk_v      : std_logic_vector(2 downto 0) := (others => '0');
+    variable pattern_v          : std_logic_vector(15 downto 0);
     variable c_v               : std_logic_vector(7 downto 0);
     variable s_v               : unsigned(4 downto 0);
     variable dh_v, dw_v, del_v : std_logic;
@@ -354,6 +358,8 @@ begin
             underline_r <= underline_v;
             w_parity_r  <= '0';
             dh_line_r   <= '0';
+            fgk_v       := (others => '0');
+            bgk_v       := (others => '0');
 
           else
             -- same line: carry forward the held/registered state -----------
@@ -380,18 +386,21 @@ begin
             blink_v  := reg_r_i(7) and blink_phase_r;
             invert_v := cursor_v and not blink_v;
             dh_v := '0'; dw_v := '0'; del_v := '0';
-            fg_v := (others => '0');
-            bg_v := (others => '0');
+            fg_v := fgk_v;
+            bg_v := bgk_v;
 
             if a_v(7) = '1' then
               ---------------------------------------------------- graphics
-              fg_v := a_v(2 downto 0);
-              bg_v := a_v(6 downto 4);
               if b_v(7 downto 5) = "100" then
+                -- illegal: solid pattern, colours carried over
                 pattern_v := x"00FF";
               elsif b_v(7) = '1' then
+                fg_v := a_v(2 downto 0);
+                bg_v := a_v(6 downto 4);
                 pattern_v := "00000000" & exr_d_i;
               else
+                fg_v := a_v(2 downto 0);
+                bg_v := a_v(6 downto 4);
                 set_v      := '1';
                 code_v     := b_v(6 downto 0);
                 char_a_o   <= pack_char_addr_f(set_v, code_v, slice_v);
@@ -446,6 +455,9 @@ begin
                 end if;
               end if;
             end if;
+
+            fgk_v := fg_v;
+            bgk_v := bg_v;
 
             -- blink masking -------------------------------------------------
             if blink_v = '1' and cursor_v = '0' and
