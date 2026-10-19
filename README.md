@@ -28,6 +28,8 @@ Copy the *.rbf file to your SD card. Create an **Oddysey** folder on the card, a
 
 When loading a ROM, most games will prompt the user with "SELECT GAME". Press 0-9 on the keyboard or mapped controller button to play the game. Unfortunately, there is no on-screen display of the game options, so looking at the [instruction manuals](https://videopac.ch/) may be helpful in selecting a game. Note that the system did not have a well defined player 1 or player 2 controller, they would alternate on a game-to-game basis. You may need to swap controllers to use the correct joystick.
 
+For G7400/EF9340 image positioning, cropping, and aspect-ratio tuning, see the [video tuning guide](./G7400-Video-Tuning.md).
+
 ## Known Issues
 
 * Still a few graphic glitches.

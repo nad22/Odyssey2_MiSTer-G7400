@@ -460,22 +460,22 @@ begin
   --
   ef_char_en_o <= '1';
 
-  -- Position the 320-pixel EF image at raster x=10. Start at EF line 0 so the
-  -- 10-line service row remains outside the cropped 200-line game picture.
-  ef_hpos_s <= std_logic_vector(unsigned(hpos_s) - 10);
+  -- The EF image's first pixel/line maps to raster x=13/y=2. The 10-line
+  -- service row ends at raster y=11, just above the active game crop.
+  ef_hpos_s <= std_logic_vector(unsigned(hpos_s) - 8);
   ef_vpos_s <= std_logic_vector(unsigned(vpos_s) - 2);
   ef_win_s  <= '1' when unsigned(ef_hpos_s) < 320 and unsigned(ef_vpos_s) < 250
                else '0';
 
   -- Once a Plus game has programmed the mix tables, crop the output to the
-  -- 320x200 EF text area (raster x 10..329, y 12..211): this hides the
+  -- 320x219 EF area (raster x 10..329, y 12..225): this hides the
   -- disabled service row on top and the unused side borders.
   ef_crop_s <= '1' when is_g7400_i = '1' and mix_i8244_s /= x"FF" else '0';
   hblank_o  <= '1' when ef_crop_s = '1' and
                         (unsigned(hpos_s) < 10 or unsigned(hpos_s) > 329)
                else hblank_vdc_s;
   vblank_o  <= '1' when ef_crop_s = '1' and
-                        (unsigned(vpos_s) < 12 or unsigned(vpos_s) > 211)
+                        (unsigned(vpos_s) < 12 or unsigned(vpos_s) > 225)
                else vblank_vdc_s;
 
   -----------------------------------------------------------------------------
