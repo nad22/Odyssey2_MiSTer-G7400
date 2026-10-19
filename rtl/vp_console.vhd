@@ -224,6 +224,12 @@ architecture struct of vp_console is
          b_from_vdc_s  : std_logic;
   signal hpos_s,
          vpos_s        : std_logic_vector(8 downto 0);
+  signal ef_hpos_s,
+         ef_vpos_s     : std_logic_vector(8 downto 0);
+  signal ef_win_s      : std_logic;
+  signal hblank_vdc_s,
+         vblank_vdc_s  : std_logic;
+  signal ef_crop_s     : std_logic;
 
   -- G7400 / EF9340-9341 (VPP) signals
   signal vpp_cs_n_s,
@@ -399,10 +405,10 @@ begin
       vsync_o    => vsync_s,
       ms_i       => vdd_s,
       hbl_o      => hbl_s,
-		hblank_o   => hblank_o,
+		hblank_o   => hblank_vdc_s,
       vbl_i      => gnd_s,
       vbl_o      => vbl_s,
-      vblank_o   => vblank_o,
+      vblank_o   => vblank_vdc_s,
       cx_i       => gnd_s,
       l_o        => l_from_vdc_s,
       cs_n_i     => vdc_cs_n_s,
@@ -444,8 +450,8 @@ begin
       addr_i     => a_low_s(1 downto 0),
       din_i      => db_s,
       dout_o     => d_from_vpp_s,
-      hpos_i     => hpos_s,
-      vpos_i     => vpos_s,
+      hpos_i     => ef_hpos_s,
+      vpos_i     => ef_vpos_s,
       char_a_o   => ef_char_a_o,
       char_d_i   => ef_char_d_i,
       rgb_o      => ef_rgb_s,
@@ -453,6 +459,24 @@ begin
     );
   --
   ef_char_en_o <= '1';
+
+  -- Position the 320-pixel EF image at raster x=10. Start at EF line 0 so the
+  -- 10-line service row remains outside the cropped 200-line game picture.
+  ef_hpos_s <= std_logic_vector(unsigned(hpos_s) - 10);
+  ef_vpos_s <= std_logic_vector(unsigned(vpos_s) - 2);
+  ef_win_s  <= '1' when unsigned(ef_hpos_s) < 320 and unsigned(ef_vpos_s) < 250
+               else '0';
+
+  -- Once a Plus game has programmed the mix tables, crop the output to the
+  -- 320x200 EF text area (raster x 10..329, y 12..211): this hides the
+  -- disabled service row on top and the unused side borders.
+  ef_crop_s <= '1' when is_g7400_i = '1' and mix_i8244_s /= x"FF" else '0';
+  hblank_o  <= '1' when ef_crop_s = '1' and
+                        (unsigned(hpos_s) < 10 or unsigned(hpos_s) > 329)
+               else hblank_vdc_s;
+  vblank_o  <= '1' when ef_crop_s = '1' and
+                        (unsigned(vpos_s) < 12 or unsigned(vpos_s) > 211)
+               else vblank_vdc_s;
 
   -----------------------------------------------------------------------------
   -- PROG edge detector for the i8243.
@@ -520,7 +544,7 @@ begin
   -- EF9340 "i2" luminance value into L is not implemented - documented
   -- limitation).
   -----------------------------------------------------------------------------
-  mix: process (is_g7400_i, ef_opaque_s, ef_rgb_s,
+  mix: process (is_g7400_i, ef_opaque_s, ef_rgb_s, ef_win_s,
                 r_from_vdc_s, g_from_vdc_s, b_from_vdc_s, l_from_vdc_s,
                 mix_ef9340_s, mix_i8244_s)
     variable i8244_rgb_v : std_logic_vector(2 downto 0);
@@ -530,7 +554,7 @@ begin
     i8244_rgb_v := b_from_vdc_s & g_from_vdc_s & r_from_vdc_s;
 
     if is_g7400_i = '1' then
-      use_i8244_v := ef_opaque_s = '0' or
+      use_i8244_v := (ef_opaque_s = '0' and ef_win_s = '1') or
                      mix_i8244_s(to_integer(unsigned(i8244_rgb_v))) = '1';
       if use_i8244_v then
         r_o     <= r_from_vdc_s;
@@ -538,10 +562,15 @@ begin
         b_o     <= b_from_vdc_s;
         l_mixed_s <= l_from_vdc_s;
       else
-        r_o     <= ef_rgb_s(0);
-        g_o     <= ef_rgb_s(1);
-        b_o     <= ef_rgb_s(2);
-        l_mixed_s <= not mix_ef9340_s(to_integer(unsigned(ef_rgb_s)));
+        if ef_opaque_s = '0' then
+          r_o <= '0'; g_o <= '0'; b_o <= '0';
+          l_mixed_s <= not mix_ef9340_s(0);
+        else
+          r_o     <= ef_rgb_s(0);
+          g_o     <= ef_rgb_s(1);
+          b_o     <= ef_rgb_s(2);
+          l_mixed_s <= not mix_ef9340_s(to_integer(unsigned(ef_rgb_s)));
+        end if;
       end if;
 
     else

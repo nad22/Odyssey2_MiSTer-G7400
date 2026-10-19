@@ -547,7 +547,14 @@ begin
             end if;
 
           else
-            -- outside the active 320-wide window: force blank/transparent
+            -- outside the active 320-wide window: pre-load column 0 of the
+            -- current line so it is ready when the window starts (otherwise
+            -- column 0 would show stale data from the previous line's end)
+            vid_addr_o <= std_logic_vector(get_c_addr_f(to_unsigned(0, 6), y_row_v));
+            char_a_o   <= resolve_char_a_f(vid_a_i, vid_b_i, slice_v, h_parity_r);
+            exr_a_o    <= vid_a_i & vid_b_i & std_logic_vector(resolve_slice_f(vid_a_i, slice_v, h_parity_r));
+
+            -- force blank/transparent
             rgb_q    <= (others => '0');
             opaque_q <= '0';
           end if;
