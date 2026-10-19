@@ -235,7 +235,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 
 `include "build_id.v"
 localparam CONF_STR = {
-	"ODYSSEY2;;",
+	"VIDEOPAC+;;",
 	"-;",
 	"F1,BIN,Load catridge;",
 	"F2,ROM,Load XROM;",
@@ -243,7 +243,7 @@ localparam CONF_STR = {
 	"F3,CHR,Change VDC font;",
 	"F4,CHR,Load G7400 charset;",
 	"-;",
-   "OFG,System,Odyssey2,Videopac,G7400;",
+   "OFG,System,G7400,Videopac,Odyssey2;",
    "OCE,G7200,Off,Contrast 1,Contrast 2,Contrast 3,Contrast 4,Contrast 5,Contrast 6,Contrast 7;",
  	"OIJ,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
@@ -299,8 +299,9 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.ps2_key(ps2_key)
 );
 
-wire       PAL = status[16:15] != 2'd0;
-wire       is_g7400 = status[16:15] == 2'd2;
+// System menu: 0 = G7400 (default), 1 = Videopac G7000 (PAL), 2 = Odyssey2 (NTSC)
+wire       PAL = status[16:15] != 2'd2;
+wire       is_g7400 = status[16:15] == 2'd0;
 wire       joy_swap = status[7];
 
 wire       VOICE = status[1];
@@ -375,7 +376,7 @@ always @(posedge CLK_50M) begin : cfg_block
 	reg pald = 0, pald2 = 0;
 	reg [3:0] state = 0;
 
-	pald <= status[16:15] != 2'd0;
+	pald <= status[16:15] != 2'd2;
 	pald2 <= pald;
 
 	cfg_write <= 0;
