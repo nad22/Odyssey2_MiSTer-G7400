@@ -1,3 +1,21 @@
+# Videopac+ G7400 / Odyssey2 for MiSTer
+
+This fork extends the MiSTer Odyssey2/Videopac core with support for the
+Philips Videopac+ G7400 video system.
+
+## Fork-specific additions
+
+- The OSD menu is titled **VIDEOPAC+**.
+- **G7400** is the default system at startup. **Videopac** (G7000) and
+  **Odyssey2** remain selectable in the System menu.
+- G7400 mode includes the EF9340/EF9341 video overlay and G7400 character set.
+- Positioning and display-crop settings for the G7400 image are described in
+  the [G7400 video tuning guide](./G7400-Video-Tuning.md).
+
+The original repository README is preserved below.
+
+---
+
 https://github.com/MiSTer-devel/Odyssey2_MiSTer - Didn't fork directly due to changes on local based repository
 
 
