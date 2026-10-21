@@ -475,7 +475,7 @@ begin
                         (unsigned(hpos_s) < 14 or unsigned(hpos_s) > 320)
                else hblank_vdc_s;
   vblank_o  <= '1' when ef_crop_s = '1' and
-                        (unsigned(vpos_s) < 12 or unsigned(vpos_s) > 230)
+                        (unsigned(vpos_s) < 12 or unsigned(vpos_s) > 240)
                else vblank_vdc_s;
 
   -----------------------------------------------------------------------------
